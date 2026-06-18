@@ -17,23 +17,91 @@ const addDays = (d, n) => {
   return x;
 };
 
-// The four habits the streak is built on. Add new ones here and the whole
-// app (checklist, scoring, chain) adapts automatically.
 const CORE = [
   { key: "protein", label: "Protein every meal", Icon: Utensils },
   { key: "plan", label: "Stayed within plan", Icon: Check },
   { key: "walk", label: "Walked / moved", Icon: Footprints },
   { key: "sleep", label: "Lights out by 11", Icon: Moon },
 ];
-// A day "holds the chain" if at least this many core habits are done (the 80% rule).
 const HOLD_THRESHOLD = 3;
-
 const dayHeld = (e) => (e ? CORE.filter((c) => e[c.key]).length : 0);
+
+// ---- workout celebration ----
+const MASCOTS = ["🌻", "🐰", "🐱", "🦊", "🐧", "🦋", "🐥", "🦄", "🐢", "🐼"];
+const CHEERS = ["Workout done! 💪", "Crushed it! 🔥", "Look at you go! ✨", "Beast mode 💪", "Proud of you! 🌟"];
+const CONFETTI_COLORS = ["#f59e0b", "#10b981", "#ef4444", "#3b82f6", "#ec4899", "#fde047"];
+
+const celebrationCss = `
+.celebrate-root{position:fixed;inset:0;pointer-events:none;z-index:50;overflow:hidden;}
+.confetti{position:absolute;top:-14px;border-radius:2px;opacity:0;
+  animation-name:confetti-fall;animation-timing-function:cubic-bezier(.25,.7,.4,1);animation-fill-mode:forwards;}
+@keyframes confetti-fall{0%{opacity:1;transform:translateY(-10px) rotate(0deg)}100%{opacity:0;transform:translateY(106vh) rotate(720deg)}}
+.mascot{position:absolute;left:50%;bottom:20%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:10px;animation:mascot-pop .35s ease-out both;}
+.dancer{font-size:78px;line-height:1;transform-origin:50% 90%;animation:dance .6s ease-in-out infinite;
+  filter:drop-shadow(0 8px 14px rgba(0,0,0,.18));}
+.bubble{background:#1c1917;color:#fef3c7;font-size:13px;font-weight:700;padding:7px 14px;border-radius:9999px;
+  box-shadow:0 6px 18px rgba(0,0,0,.2);animation:bubble-bob 1.1s ease-in-out infinite;white-space:nowrap;}
+@keyframes mascot-pop{0%{opacity:0;transform:translateX(-50%) scale(.3)}70%{transform:translateX(-50%) scale(1.12)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
+@keyframes dance{0%,100%{transform:rotate(-13deg) translateY(0)}25%{transform:rotate(9deg) translateY(-9px)}50%{transform:rotate(-9deg) translateY(0)}75%{transform:rotate(13deg) translateY(-7px)}}
+@keyframes bubble-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@media (prefers-reduced-motion: reduce){.dancer{animation:none}.bubble{animation:none}.confetti{display:none}}
+`;
+
+function Celebration({ onDone }) {
+  const reduce =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const mascot = useMemo(() => MASCOTS[Math.floor(Math.random() * MASCOTS.length)], []);
+  const cheer = useMemo(() => CHEERS[Math.floor(Math.random() * CHEERS.length)], []);
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: reduce ? 0 : 38 }).map(() => ({
+        left: Math.random() * 100,
+        delay: Math.random() * 0.35,
+        dur: 1.6 + Math.random() * 1.3,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        size: 6 + Math.random() * 8,
+      })),
+    [reduce]
+  );
+
+  useEffect(() => {
+    const t = setTimeout(onDone, reduce ? 1400 : 2600);
+    return () => clearTimeout(t);
+  }, [onDone, reduce]);
+
+  return (
+    <div className="celebrate-root" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className="confetti"
+          style={{
+            left: `${p.left}%`,
+            background: p.color,
+            width: p.size,
+            height: p.size,
+            animationDelay: `${p.delay}s`,
+            animationDuration: `${p.dur}s`,
+          }}
+        />
+      ))}
+      <div className="mascot">
+        <div className="bubble">{cheer}</div>
+        <div className="dancer">{mascot}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [days, setDays] = useState({});
   const [loading, setLoading] = useState(true);
   const [weightInput, setWeightInput] = useState("");
+  const [celebrate, setCelebrate] = useState(null);
   const fileRef = useRef(null);
 
   const todayKey = fmt(new Date());
@@ -60,8 +128,11 @@ export default function App() {
 
   const toggle = (key) => {
     const entry = { ...(days[todayKey] || {}) };
-    entry[key] = !entry[key];
+    const willBeOn = !entry[key];
+    entry[key] = willBeOn;
     persist({ ...days, [todayKey]: entry });
+    // celebrate only when turning the workout ON
+    if (key === "workout" && willBeOn) setCelebrate(Date.now());
   };
 
   const saveWeight = () => {
@@ -98,22 +169,15 @@ export default function App() {
     e.target.value = "";
   };
 
-  // ---- streaks ----
   const { current, best } = useMemo(() => {
-    // Count consecutive "held" days ENDING YESTERDAY. Today is in progress and
-    // is NEVER treated as a miss — it can only extend the streak once secured.
     let cur = 0;
     let cursor = addDays(new Date(), -1);
     while (dayHeld(days[fmt(cursor)]) >= HOLD_THRESHOLD) {
       cur++;
       cursor = addDays(cursor, -1);
     }
-    // Today adds to the streak only the moment it reaches the threshold.
-    const todaySecured = dayHeld(days[todayKey]) >= HOLD_THRESHOLD;
-    if (todaySecured) cur += 1;
+    if (dayHeld(days[todayKey]) >= HOLD_THRESHOLD) cur += 1;
 
-    // Best streak: longest run of held days across history. An incomplete TODAY
-    // does not reset the historical run.
     const keys = Object.keys(days).sort();
     let bst = cur;
     if (keys.length) {
@@ -155,7 +219,6 @@ export default function App() {
   }, [days, todayKey]);
 
   const cellClass = (c) => {
-    // Today is always "in progress", shown with a ring and never as a red miss.
     if (c.isToday) {
       const ring = " ring-2 ring-amber-400";
       if (c.score >= 4) return "bg-emerald-500" + ring;
@@ -182,13 +245,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-amber-50 text-stone-900 px-4 py-6 sm:py-10">
+      <style>{celebrationCss}</style>
+      {celebrate && <Celebration key={celebrate} onDone={() => setCelebrate(null)} />}
+
       <div className="max-w-md mx-auto">
         <div className="flex items-baseline justify-between mb-5">
           <h1 className="text-2xl font-extrabold tracking-tight">Don't break the chain</h1>
           <span className="text-xs font-mono text-stone-400">{todayKey}</span>
         </div>
 
-        {/* streak hero */}
         <div className="rounded-3xl bg-stone-900 text-amber-50 p-6 mb-5 shadow-sm">
           <div className="flex items-center gap-4">
             <Flame className={current > 0 ? "text-amber-400" : "text-stone-600"} size={44} strokeWidth={2.2} />
@@ -208,7 +273,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* today's checklist */}
         <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-stone-800">Today</h2>
@@ -262,7 +326,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* the chain */}
         <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
           <h2 className="font-bold text-stone-800 mb-3">Last 5 weeks</h2>
           <div className="grid grid-cols-7 gap-1.5">
@@ -278,7 +341,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* optional weight */}
         <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-bold text-stone-800">Weight check</h2>
@@ -304,7 +366,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* backup / restore */}
         <div className="flex gap-2">
           <button onClick={downloadBackup} className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white border border-stone-200 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50">
             <Download size={16} /> Backup
