@@ -100,13 +100,20 @@ export default function App() {
 
   // ---- streaks ----
   const { current, best } = useMemo(() => {
+    // Count consecutive "held" days ENDING YESTERDAY. Today is in progress and
+    // is NEVER treated as a miss — it can only extend the streak once secured.
     let cur = 0;
-    let cursor = new Date();
-    if (!days[fmt(cursor)]) cursor = addDays(cursor, -1);
+    let cursor = addDays(new Date(), -1);
     while (dayHeld(days[fmt(cursor)]) >= HOLD_THRESHOLD) {
       cur++;
       cursor = addDays(cursor, -1);
     }
+    // Today adds to the streak only the moment it reaches the threshold.
+    const todaySecured = dayHeld(days[todayKey]) >= HOLD_THRESHOLD;
+    if (todaySecured) cur += 1;
+
+    // Best streak: longest run of held days across history. An incomplete TODAY
+    // does not reset the historical run.
     const keys = Object.keys(days).sort();
     let bst = cur;
     if (keys.length) {
@@ -114,10 +121,13 @@ export default function App() {
       let d = new Date(keys[0]);
       const end = new Date(todayKey);
       while (d <= end) {
+        const isToday = fmt(d) === todayKey;
         if (dayHeld(days[fmt(d)]) >= HOLD_THRESHOLD) {
           run++;
           if (run > bst) bst = run;
-        } else run = 0;
+        } else if (!isToday) {
+          run = 0;
+        }
         d = addDays(d, 1);
       }
     }
@@ -145,12 +155,17 @@ export default function App() {
   }, [days, todayKey]);
 
   const cellClass = (c) => {
-    const base = c.isToday ? " ring-2 ring-amber-400" : "";
-    if (c.isToday && !c.logged) return "bg-stone-200" + base;
+    // Today is always "in progress", shown with a ring and never as a red miss.
+    if (c.isToday) {
+      const ring = " ring-2 ring-amber-400";
+      if (c.score >= 4) return "bg-emerald-500" + ring;
+      if (c.score >= HOLD_THRESHOLD) return "bg-amber-400" + ring;
+      return "bg-amber-200" + ring;
+    }
     if (!c.logged) return "bg-stone-200/60";
-    if (c.score >= 4) return "bg-emerald-500" + base;
-    if (c.score >= HOLD_THRESHOLD) return "bg-amber-400" + base;
-    return "bg-rose-300" + base;
+    if (c.score >= 4) return "bg-emerald-500";
+    if (c.score >= HOLD_THRESHOLD) return "bg-amber-400";
+    return "bg-rose-300";
   };
 
   if (loading) {
@@ -162,6 +177,8 @@ export default function App() {
   }
 
   const todayScore = dayHeld(today);
+  const todayStatus =
+    todayScore >= 4 ? "perfect" : todayScore >= HOLD_THRESHOLD ? "secured" : "in progress";
 
   return (
     <div className="min-h-screen bg-amber-50 text-stone-900 px-4 py-6 sm:py-10">
@@ -204,8 +221,7 @@ export default function App() {
                   : "bg-stone-100 text-stone-500"
               }`}
             >
-              {todayScore}/4{" "}
-              {todayScore >= 4 ? "perfect" : todayScore >= HOLD_THRESHOLD ? "chain held" : `need ${HOLD_THRESHOLD - todayScore} more`}
+              {todayScore}/4 · {todayStatus}
             </span>
           </div>
 
@@ -257,8 +273,8 @@ export default function App() {
           <div className="flex items-center gap-3 mt-3 text-[11px] text-stone-400">
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500" /> 4/4</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400" /> 3/4</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-200" /> today</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-300" /> missed</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-stone-200" /> —</span>
           </div>
         </div>
 
@@ -300,7 +316,7 @@ export default function App() {
         </div>
 
         <p className="text-center text-[11px] text-stone-400 mt-5">
-          Hit any {HOLD_THRESHOLD} of 4 and the chain holds. One slip ≠ a reset.
+          Today counts once you hit {HOLD_THRESHOLD} of 4 — until then it never breaks your streak.
         </p>
       </div>
     </div>
