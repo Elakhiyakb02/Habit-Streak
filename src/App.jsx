@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Flame, Check, Moon, Footprints, Utensils, Dumbbell, Trophy, Download, Upload } from "lucide-react";
 import { storage, exportData, importData } from "./lib/storage.js";
+import Mascot from "./components/Mascot.jsx";
 
 const STORAGE_KEY = "habit-tracker-v1";
 
@@ -26,55 +27,78 @@ const CORE = [
 const HOLD_THRESHOLD = 3;
 const dayHeld = (e) => (e ? CORE.filter((c) => e[c.key]).length : 0);
 
-// ---- workout celebration ----
-const MASCOTS = ["🌻", "🐰", "🐱", "🦊", "🐧", "🦋", "🐥", "🦄", "🐢", "🐼"];
+// Milestone streaks: 7, then every 30 days (7, 30, 60, 90, ...).
+const isMilestoneStreak = (n) => n === 7 || (n >= 30 && n % 30 === 0);
+const milestoneMessage = (n) => {
+  if (n === 7) return "One week streak! 🔥";
+  if (n === 30) return "30 days! You're unstoppable 🌟";
+  if (n === 90) return "90 days — this is who you are now 💪";
+  if (n === 180) return "Half a year! Incredible 🏆";
+  if (n === 360) return "A whole year. Legend. 👑";
+  return `${n}-day streak! 🎉`;
+};
+
 const CHEERS = ["Workout done! 💪", "Crushed it! 🔥", "Look at you go! ✨", "Beast mode 💪", "Proud of you! 🌟"];
 const CONFETTI_COLORS = ["#f59e0b", "#10b981", "#ef4444", "#3b82f6", "#ec4899", "#fde047"];
 
 const celebrationCss = `
-.celebrate-root{position:fixed;inset:0;pointer-events:none;z-index:50;overflow:hidden;}
+.celebrate-root{position:fixed;inset:0;z-index:50;overflow:hidden;pointer-events:auto;cursor:pointer;}
+.cel-backdrop{position:absolute;inset:0;background:rgba(255,255,255,.5);animation:cel-fade .25s ease both;}
 .confetti{position:absolute;top:-14px;border-radius:2px;opacity:0;
   animation-name:confetti-fall;animation-timing-function:cubic-bezier(.25,.7,.4,1);animation-fill-mode:forwards;}
 @keyframes confetti-fall{0%{opacity:1;transform:translateY(-10px) rotate(0deg)}100%{opacity:0;transform:translateY(106vh) rotate(720deg)}}
-.mascot{position:absolute;left:50%;bottom:20%;transform:translateX(-50%);
-  display:flex;flex-direction:column;align-items:center;gap:10px;animation:mascot-pop .35s ease-out both;}
-.dancer{font-size:78px;line-height:1;transform-origin:50% 90%;animation:dance .6s ease-in-out infinite;
-  filter:drop-shadow(0 8px 14px rgba(0,0,0,.18));}
-.bubble{background:#1c1917;color:#fef3c7;font-size:13px;font-weight:700;padding:7px 14px;border-radius:9999px;
-  box-shadow:0 6px 18px rgba(0,0,0,.2);animation:bubble-bob 1.1s ease-in-out infinite;white-space:nowrap;}
-@keyframes mascot-pop{0%{opacity:0;transform:translateX(-50%) scale(.3)}70%{transform:translateX(-50%) scale(1.12)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
-@keyframes dance{0%,100%{transform:rotate(-13deg) translateY(0)}25%{transform:rotate(9deg) translateY(-9px)}50%{transform:rotate(-9deg) translateY(0)}75%{transform:rotate(13deg) translateY(-7px)}}
+.cel-mascot{position:absolute;left:50%;bottom:16%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:12px;animation:cel-pop .35s ease-out both;}
+.cel-bubble{background:#1c1917;color:#fef3c7;
+  font-family:'Fredoka','ui-rounded',system-ui,sans-serif;font-weight:600;font-size:17px;letter-spacing:.3px;
+  padding:9px 18px;border-radius:9999px;box-shadow:0 8px 22px rgba(0,0,0,.28);white-space:nowrap;
+  animation:bubble-bob 1.1s ease-in-out infinite;}
+.cel-skip{position:absolute;bottom:6%;left:50%;transform:translateX(-50%);
+  font-family:'Fredoka',system-ui,sans-serif;font-size:11px;color:#78716c;opacity:.8;animation:cel-fade 1s ease both;animation-delay:.6s;}
+@keyframes cel-fade{from{opacity:0}to{opacity:1}}
+@keyframes cel-pop{0%{opacity:0;transform:translateX(-50%) scale(.6)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
 @keyframes bubble-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-@media (prefers-reduced-motion: reduce){.dancer{animation:none}.bubble{animation:none}.confetti{display:none}}
 `;
 
-function Celebration({ onDone }) {
+function buzz(pattern) {
+  try {
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(pattern);
+  } catch {
+    /* unsupported (e.g. iOS Safari) — silently ignore */
+  }
+}
+
+function Celebration({ milestone, onDone }) {
+  const isMilestone = milestone != null;
   const reduce =
     typeof window !== "undefined" &&
     window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const mascot = useMemo(() => MASCOTS[Math.floor(Math.random() * MASCOTS.length)], []);
-  const cheer = useMemo(() => CHEERS[Math.floor(Math.random() * CHEERS.length)], []);
+  const cheer = useMemo(
+    () => (isMilestone ? milestoneMessage(milestone) : CHEERS[Math.floor(Math.random() * CHEERS.length)]),
+    [isMilestone, milestone]
+  );
   const pieces = useMemo(
     () =>
-      Array.from({ length: reduce ? 0 : 38 }).map(() => ({
+      Array.from({ length: reduce ? 0 : isMilestone ? 74 : 40 }).map(() => ({
         left: Math.random() * 100,
-        delay: Math.random() * 0.35,
-        dur: 1.6 + Math.random() * 1.3,
+        delay: Math.random() * (isMilestone ? 0.6 : 0.35),
+        dur: 1.6 + Math.random() * (isMilestone ? 1.8 : 1.3),
         color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
         size: 6 + Math.random() * 8,
       })),
-    [reduce]
+    [reduce, isMilestone]
   );
 
   useEffect(() => {
-    const t = setTimeout(onDone, reduce ? 1400 : 2600);
+    const t = setTimeout(onDone, reduce ? 1500 : isMilestone ? 4400 : 2800);
     return () => clearTimeout(t);
-  }, [onDone, reduce]);
+  }, [onDone, reduce, isMilestone]);
 
   return (
-    <div className="celebrate-root" aria-hidden="true">
+    <div className="celebrate-root" aria-hidden="true" onClick={onDone}>
+      <div className="cel-backdrop" />
       {pieces.map((p, i) => (
         <span
           key={i}
@@ -89,30 +113,36 @@ function Celebration({ onDone }) {
           }}
         />
       ))}
-      <div className="mascot">
-        <div className="bubble">{cheer}</div>
-        <div className="dancer">{mascot}</div>
+      <div className="cel-mascot">
+        <div className="cel-bubble">{cheer}</div>
+        <Mascot mood={isMilestone ? "milestone" : "cheer"} />
       </div>
+      <div className="cel-skip">tap to dismiss</div>
     </div>
   );
 }
 
 export default function App() {
   const [days, setDays] = useState({});
+  const [celebrated, setCelebrated] = useState([]); // milestone streak values already shown
   const [loading, setLoading] = useState(true);
   const [weightInput, setWeightInput] = useState("");
-  const [celebrate, setCelebrate] = useState(null);
+  const [celebrate, setCelebrate] = useState(null); // { id, milestone:number|null }
+  const [selectedKey, setSelectedKey] = useState(() => fmt(new Date()));
   const fileRef = useRef(null);
 
   const todayKey = fmt(new Date());
-  const today = days[todayKey] || {};
+  const selected = days[selectedKey] || {};
+  const isEditingToday = selectedKey === todayKey;
 
   useEffect(() => {
     (async () => {
       const res = await storage.get(STORAGE_KEY);
       if (res && res.value) {
         try {
-          setDays(JSON.parse(res.value).days || {});
+          const parsed = JSON.parse(res.value);
+          setDays(parsed.days || {});
+          setCelebrated(parsed.celebrated || []);
         } catch {
           /* corrupt — start fresh */
         }
@@ -121,24 +151,62 @@ export default function App() {
     })();
   }, []);
 
-  const persist = (next) => {
-    setDays(next);
-    storage.set(STORAGE_KEY, JSON.stringify({ days: next }));
+  const persistAll = (nextDays, nextCelebrated) => {
+    storage.set(STORAGE_KEY, JSON.stringify({ days: nextDays, celebrated: nextCelebrated }));
+  };
+
+  // streak ending yesterday + today only if secured
+  const computeStreak = (d) => {
+    let cur = 0;
+    let cursor = addDays(new Date(), -1);
+    while (dayHeld(d[fmt(cursor)]) >= HOLD_THRESHOLD) {
+      cur++;
+      cursor = addDays(cursor, -1);
+    }
+    if (dayHeld(d[todayKey]) >= HOLD_THRESHOLD) cur += 1;
+    return cur;
   };
 
   const toggle = (key) => {
-    const entry = { ...(days[todayKey] || {}) };
+    const dayKey = selectedKey;
+    const entry = { ...(days[dayKey] || {}) };
     const willBeOn = !entry[key];
     entry[key] = willBeOn;
-    persist({ ...days, [todayKey]: entry });
-    // celebrate only when turning the workout ON
-    if (key === "workout" && willBeOn) setCelebrate(Date.now());
+    const next = { ...days, [dayKey]: entry };
+
+    let nextCelebrated = celebrated;
+    let fire = null;
+
+    // Celebrations only fire when editing TODAY — backfilling a past day is a
+    // quiet correction, not a fresh win.
+    if (dayKey === todayKey) {
+      if (key === "workout") {
+        if (willBeOn) {
+          fire = { id: Date.now(), milestone: null };
+          buzz(35);
+        }
+      } else if (willBeOn) {
+        const s = computeStreak(next);
+        if (isMilestoneStreak(s) && !celebrated.includes(s)) {
+          nextCelebrated = [...celebrated, s];
+          fire = { id: Date.now(), milestone: s };
+          buzz([0, 70, 50, 70, 50, 150]);
+        }
+      }
+    }
+
+    setDays(next);
+    setCelebrated(nextCelebrated);
+    persistAll(next, nextCelebrated);
+    if (fire) setCelebrate(fire);
   };
 
   const saveWeight = () => {
     const w = parseFloat(weightInput);
     if (!w || w < 30 || w > 200) return;
-    persist({ ...days, [todayKey]: { ...(days[todayKey] || {}), weight: w } });
+    const next = { ...days, [selectedKey]: { ...(days[selectedKey] || {}), weight: w } };
+    setDays(next);
+    persistAll(next, celebrated);
     setWeightInput("");
   };
 
@@ -160,7 +228,11 @@ export default function App() {
       try {
         importData(String(reader.result));
         const res = await storage.get(STORAGE_KEY);
-        if (res?.value) setDays(JSON.parse(res.value).days || {});
+        if (res?.value) {
+          const parsed = JSON.parse(res.value);
+          setDays(parsed.days || {});
+          setCelebrated(parsed.celebrated || []);
+        }
       } catch {
         alert("That file couldn't be read as a backup.");
       }
@@ -170,14 +242,7 @@ export default function App() {
   };
 
   const { current, best } = useMemo(() => {
-    let cur = 0;
-    let cursor = addDays(new Date(), -1);
-    while (dayHeld(days[fmt(cursor)]) >= HOLD_THRESHOLD) {
-      cur++;
-      cursor = addDays(cursor, -1);
-    }
-    if (dayHeld(days[todayKey]) >= HOLD_THRESHOLD) cur += 1;
-
+    const cur = computeStreak(days);
     const keys = Object.keys(days).sort();
     let bst = cur;
     if (keys.length) {
@@ -196,6 +261,7 @@ export default function App() {
       }
     }
     return { current: cur, best: bst };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, todayKey]);
 
   const weightTrend = useMemo(() => {
@@ -213,22 +279,28 @@ export default function App() {
     for (let i = 34; i >= 0; i--) {
       const d = addDays(new Date(), -i);
       const k = fmt(d);
-      arr.push({ k, score: dayHeld(days[k]), logged: !!days[k], isToday: k === todayKey });
+      arr.push({ k, score: dayHeld(days[k]), logged: !!days[k], isToday: k === todayKey, isSelected: k === selectedKey, workout: !!(days[k] && days[k].workout) });
     }
     return arr;
-  }, [days, todayKey]);
+  }, [days, todayKey, selectedKey]);
 
   const cellClass = (c) => {
+    let fill;
     if (c.isToday) {
-      const ring = " ring-2 ring-amber-400";
-      if (c.score >= 4) return "bg-emerald-500" + ring;
-      if (c.score >= HOLD_THRESHOLD) return "bg-amber-400" + ring;
-      return "bg-amber-200" + ring;
+      fill = c.score >= 4 ? "bg-emerald-500" : c.score >= HOLD_THRESHOLD ? "bg-amber-400" : "bg-amber-200";
+    } else if (!c.logged) {
+      fill = "bg-stone-200/60";
+    } else if (c.score >= 4) {
+      fill = "bg-emerald-500";
+    } else if (c.score >= HOLD_THRESHOLD) {
+      fill = "bg-amber-400";
+    } else {
+      fill = "bg-rose-300";
     }
-    if (!c.logged) return "bg-stone-200/60";
-    if (c.score >= 4) return "bg-emerald-500";
-    if (c.score >= HOLD_THRESHOLD) return "bg-amber-400";
-    return "bg-rose-300";
+    let ring = "";
+    if (c.isSelected) ring = c.isToday ? " ring-2 ring-amber-500" : " ring-2 ring-stone-800";
+    else if (c.isToday) ring = " ring-2 ring-amber-400";
+    return fill + ring;
   };
 
   if (loading) {
@@ -239,14 +311,27 @@ export default function App() {
     );
   }
 
-  const todayScore = dayHeld(today);
-  const todayStatus =
-    todayScore >= 4 ? "perfect" : todayScore >= HOLD_THRESHOLD ? "secured" : "in progress";
+  const selectedScore = dayHeld(selected);
+  const selectedStatus = isEditingToday
+    ? selectedScore >= 4
+      ? "perfect"
+      : selectedScore >= HOLD_THRESHOLD
+      ? "secured"
+      : "in progress"
+    : selectedScore >= 4
+    ? "perfect"
+    : selectedScore >= HOLD_THRESHOLD
+    ? "held"
+    : "missed";
+  const dayLabel = (key) =>
+    key === todayKey
+      ? "Today"
+      : new Date(key).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
   return (
     <div className="min-h-screen bg-amber-50 text-stone-900 px-4 py-6 sm:py-10">
       <style>{celebrationCss}</style>
-      {celebrate && <Celebration key={celebrate} onDone={() => setCelebrate(null)} />}
+      {celebrate && <Celebration key={celebrate.id} milestone={celebrate.milestone} onDone={() => setCelebrate(null)} />}
 
       <div className="max-w-md mx-auto">
         <div className="flex items-baseline justify-between mb-5">
@@ -275,23 +360,33 @@ export default function App() {
 
         <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-stone-800">Today</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-bold text-stone-800">{dayLabel(selectedKey)}</h2>
+              {!isEditingToday && (
+                <button
+                  onClick={() => setSelectedKey(todayKey)}
+                  className="text-[11px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full hover:bg-amber-200"
+                >
+                  ← Today
+                </button>
+              )}
+            </div>
             <span
               className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                todayScore >= 4
+                selectedScore >= 4
                   ? "bg-emerald-100 text-emerald-700"
-                  : todayScore >= HOLD_THRESHOLD
+                  : selectedScore >= HOLD_THRESHOLD
                   ? "bg-amber-100 text-amber-700"
                   : "bg-stone-100 text-stone-500"
               }`}
             >
-              {todayScore}/4 · {todayStatus}
+              {selectedScore}/4 · {selectedStatus}
             </span>
           </div>
 
           <div className="space-y-2">
             {CORE.map(({ key, label, Icon }) => {
-              const on = !!today[key];
+              const on = !!selected[key];
               return (
                 <button
                   key={key}
@@ -312,32 +407,43 @@ export default function App() {
             <button
               onClick={() => toggle("workout")}
               className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition border-2 border-dashed ${
-                today.workout ? "bg-amber-400 border-amber-400 text-stone-900" : "bg-white border-stone-200 text-stone-500 hover:bg-stone-50"
+                selected.workout ? "bg-amber-400 border-amber-400 text-stone-900" : "bg-white border-stone-200 text-stone-500 hover:bg-stone-50"
               }`}
             >
               <Dumbbell size={20} strokeWidth={2.2} />
               <span className="font-medium flex-1">
                 Workout <span className="text-xs opacity-70">(bonus)</span>
               </span>
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center ${today.workout ? "bg-white/30" : "border-2 border-stone-300"}`}>
-                {today.workout && <Check size={15} strokeWidth={3} />}
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center ${selected.workout ? "bg-white/30" : "border-2 border-stone-300"}`}>
+                {selected.workout && <Check size={15} strokeWidth={3} />}
               </span>
             </button>
           </div>
         </div>
 
         <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
-          <h2 className="font-bold text-stone-800 mb-3">Last 5 weeks</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-stone-800">Last 5 weeks</h2>
+            <span className="text-[11px] text-stone-400">tap a day to edit</span>
+          </div>
           <div className="grid grid-cols-7 gap-1.5">
             {grid.map((c) => (
-              <div key={c.k} title={`${c.k} · ${c.logged ? c.score + "/4" : "not logged"}`} className={`aspect-square rounded-md ${cellClass(c)}`} />
+              <button
+                key={c.k}
+                onClick={() => setSelectedKey(c.k)}
+                title={`${c.k} · ${c.logged ? c.score + "/4" : "not logged"}${c.workout ? " · workout" : ""}`}
+                className={`aspect-square rounded-md flex items-center justify-center transition ${cellClass(c)}`}
+              >
+                {c.workout && <span style={{ fontSize: "16px", lineHeight: 1 }}>🔥</span>}
+              </button>
             ))}
           </div>
-          <div className="flex items-center gap-3 mt-3 text-[11px] text-stone-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[11px] text-stone-400">
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500" /> 4/4</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400" /> 3/4</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-200" /> today</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-300" /> missed</span>
+            <span className="flex items-center gap-1">🔥 workout</span>
           </div>
         </div>
 
@@ -357,7 +463,7 @@ export default function App() {
               inputMode="decimal"
               value={weightInput}
               onChange={(e) => setWeightInput(e.target.value)}
-              placeholder={today.weight ? `${today.weight} kg logged` : "kg today"}
+              placeholder={selected.weight ? `${selected.weight} kg logged` : "kg today"}
               className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
             />
             <button onClick={saveWeight} className="rounded-xl bg-stone-900 text-amber-50 px-4 py-2 text-sm font-semibold hover:bg-stone-800">
