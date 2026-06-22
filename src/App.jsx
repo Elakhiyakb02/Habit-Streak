@@ -264,14 +264,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, todayKey]);
 
-  const weightTrend = useMemo(() => {
+  const weightStats = useMemo(() => {
+    // all logged weights, chronological
+    const series = Object.keys(days)
+      .filter((k) => days[k] && typeof days[k].weight === "number")
+      .sort()
+      .map((k) => ({ key: k, value: days[k].weight }));
+
     const last7 = [];
     for (let i = 0; i < 7; i++) {
       const e = days[fmt(addDays(new Date(), -i))];
-      if (e && e.weight) last7.push(e.weight);
+      if (e && typeof e.weight === "number") last7.push(e.weight);
     }
-    if (!last7.length) return null;
-    return { avg: (last7.reduce((a, b) => a + b, 0) / last7.length).toFixed(1), n: last7.length };
+    const avg7 = last7.length ? last7.reduce((a, b) => a + b, 0) / last7.length : null;
+    const last = series.length ? series[series.length - 1] : null;
+
+    return {
+      last, // { key, value } | null
+      avg7, // number | null
+      avg7Count: last7.length,
+      series: series.slice(-14), // last 14 weigh-ins for the trend line
+    };
   }, [days]);
 
   const grid = useMemo(() => {
@@ -447,29 +460,84 @@ export default function App() {
           </div>
         </div>
 
-        <div className="rounded-3xl bg-white p-5 mb-5 shadow-sm border border-stone-100">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="font-bold text-stone-800">Weight check</h2>
-            {weightTrend && (
-              <span className="text-sm text-stone-500">
-                7-day avg <span className="font-bold text-stone-800 tabular-nums">{weightTrend.avg} kg</span>
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-stone-400 mb-3">Optional. Judge by the average, never a single morning.</p>
-          <div className="flex gap-2">
+        <div className="rounded-3xl bg-white p-6 mb-5 shadow-sm border border-stone-100">
+          <h2 className="font-bold text-stone-800 mb-4">Weight</h2>
+
+          {weightStats.last ? (
+            <>
+              <div className="flex items-stretch gap-4 mb-5">
+                <div className="flex-1">
+                  <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-1">Last logged</div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-black tabular-nums text-stone-900">{weightStats.last.value.toFixed(1)}</span>
+                    <span className="text-base font-semibold text-stone-400">kg</span>
+                  </div>
+                  <div className="text-xs text-stone-400 mt-1">{dayLabel(weightStats.last.key)}</div>
+                </div>
+                <div className="w-px bg-stone-100" />
+                <div className="flex-1">
+                  <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-1">7-day average</div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-black tabular-nums text-amber-600">
+                      {weightStats.avg7 != null ? weightStats.avg7.toFixed(1) : "–"}
+                    </span>
+                    <span className="text-base font-semibold text-amber-400">kg</span>
+                  </div>
+                  <div className="text-xs text-stone-400 mt-1">
+                    {weightStats.avg7Count} weigh-in{weightStats.avg7Count === 1 ? "" : "s"} this week
+                  </div>
+                </div>
+              </div>
+
+              {weightStats.series.length >= 2 &&
+                (() => {
+                  const vals = weightStats.series.map((s) => s.value);
+                  const min = Math.min(...vals);
+                  const max = Math.max(...vals);
+                  const range = max - min || 1;
+                  const W = 280;
+                  const H = 54;
+                  const pad = 6;
+                  const n = vals.length;
+                  const pts = vals.map((v, i) => {
+                    const x = pad + (i * (W - 2 * pad)) / (n - 1);
+                    const y = pad + (H - 2 * pad) * (1 - (v - min) / range);
+                    return [x, y];
+                  });
+                  const line = pts.map((p) => p.join(",")).join(" ");
+                  const last = pts[pts.length - 1];
+                  return (
+                    <div className="mb-1">
+                      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ height: 54 }}>
+                        <polyline points={line} fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx={last[0]} cy={last[1]} r="3.5" fill="#d97706" />
+                      </svg>
+                      <div className="flex justify-between text-[10px] text-stone-400">
+                        <span>{weightStats.series.length} recent weigh-ins</span>
+                        <span className="tabular-nums">low {min.toFixed(1)} · high {max.toFixed(1)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+            </>
+          ) : (
+            <p className="text-sm text-stone-400 mb-4">No weigh-ins yet — log your first below.</p>
+          )}
+
+          <div className="flex gap-2 mt-4">
             <input
               type="number"
               inputMode="decimal"
               value={weightInput}
               onChange={(e) => setWeightInput(e.target.value)}
-              placeholder={selected.weight ? `${selected.weight} kg logged` : "kg today"}
-              className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              placeholder={selected.weight ? `${selected.weight} kg on ${dayLabel(selectedKey).toLowerCase()}` : `log ${dayLabel(selectedKey).toLowerCase()} (kg)`}
+              className="flex-1 rounded-xl border border-stone-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-amber-400"
             />
-            <button onClick={saveWeight} className="rounded-xl bg-stone-900 text-amber-50 px-4 py-2 text-sm font-semibold hover:bg-stone-800">
+            <button onClick={saveWeight} className="rounded-xl bg-stone-900 text-amber-50 px-5 py-3 text-sm font-semibold hover:bg-stone-800">
               Log
             </button>
           </div>
+          <p className="text-xs text-stone-400 mt-3">Judge by the average, never a single morning.</p>
         </div>
 
         <div className="flex gap-2">
